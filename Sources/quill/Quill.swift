@@ -95,7 +95,7 @@ final class AppController {
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
-        menuBar.onMenuOpen = { [weak self] in self?.refreshDiskSpace() }
+        menuBar.onMenuOpen = { [weak self] in self?.refreshDiskSpace(); self?.tick() }
         menuBar.update(recording: false, elapsed: nil)
         refreshDiskSpace()
         let diskTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
@@ -151,8 +151,10 @@ final class AppController {
                 return
             }
 
+            menuBar.updateCapture([])
             menuBar.update(recording: true, elapsed: "0:00")
-            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            tick()
+            let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tick() }
             }
             // Keep the cutoff active while a menu or title dialog is open.
@@ -196,6 +198,7 @@ final class AppController {
 
     private func tick() {
         guard let session, let deadline else { return }
+        menuBar.updateCapture(session.captureActivity())
         let now = Date()
         guard now < deadline else {
             stopSession()

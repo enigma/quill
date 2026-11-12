@@ -213,3 +213,23 @@ quill install --uninstall
   Recognition can still make mistakes, especially with names and mixed-language speech.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.
+
+### Live capture status
+
+While recording, open the Quill menu to see separate microphone and system-audio
+level meters. “Receiving · saving” means audio buffers were successfully written;
+“Quiet · saving” means buffers are arriving but their signal is very quiet. Silence
+alone does not indicate a broken recorder.
+
+After five seconds without incoming buffers or successful writes, the track shows
+“No data” or “Not saving”. Explicit capture/write errors also show a warning.
+A warning symbol remains visible on the menu-bar icon with the menu closed; hover
+for details. These indicators do not automatically restart capture or prove that
+both sides of a conversation are audible—test with speech and system playback.
+
+Each recording has `logs/capture.log` with start/stop events, health transitions,
+and successful frame counts. Capture warnings are also saved in `meta.json`.
+Meters use in-memory audio counters, not repeated reads of the recording files.
+
+Run `make test-capture` to check capture-health transitions. These standalone Swift
+checks need only Command Line Tools and Foundation, not XCTest or model downloads.

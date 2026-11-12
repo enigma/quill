@@ -27,6 +27,7 @@ final class MicRecorder: @unchecked Sendable {
         }
     }
 
+    let activity = CaptureActivity()
     private var engine = AVAudioEngine()
     private var file: AVAudioFile?
     private var url: URL?
@@ -45,6 +46,7 @@ final class MicRecorder: @unchecked Sendable {
     /// — CAF needs no finalization pass, so a crash loses nothing written).
     func start(writingTo url: URL) throws {
         guard !isRecording else { return }
+        activity.begin()
         self.url = url
         try attach(voiceProcessing: Config.micVoiceProcessing())
         isRecording = true
@@ -153,6 +155,7 @@ final class MicRecorder: @unchecked Sendable {
         let checkFrames = Int(format.sampleRate)
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self, let file = self.file else { return }
+            self.activity.receive()
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
 
             if !self.livenessSettled {
@@ -174,7 +177,9 @@ final class MicRecorder: @unchecked Sendable {
 
             do {
                 try file.write(from: buffer)
+                self.activity.saved(frames: buffer.frameLength, peak: audioPeak(buffer))
             } catch {
+                self.activity.fail("Mic conversion/write failed: \(error)")
                 FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
             }
         }
@@ -192,6 +197,7 @@ final class MicRecorder: @unchecked Sendable {
         }
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let file = self.file else { return }
+            self.activity.receive()
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
             guard let mono = AVAudioPCMBuffer(
                 pcmFormat: monoFormat,
@@ -200,7 +206,9 @@ final class MicRecorder: @unchecked Sendable {
             do {
                 try converter.convert(to: mono, from: buffer)
                 try file.write(from: mono)
+                self.activity.saved(frames: mono.frameLength, peak: audioPeak(mono))
             } catch {
+                self.activity.fail("Mic conversion/write failed: \(error)")
                 FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
             }
         }
@@ -227,6 +235,7 @@ final class MicRecorder: @unchecked Sendable {
             FileHandle.standardError.write(Data(
                 "mic raw fallback failed: \(error) — session continues without mic track\n".utf8
             ))
+            activity.fail("Mic fallback failed: \(error)")
             file = nil
         }
     }

@@ -9,6 +9,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let diskSpaceLabel: NSMenuItem
+    private let micActivity = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let systemActivity = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var captureWarning: String?
+    private(set) var isMenuOpen = false
     private var recording = false
     private var diskWarning: String?
     private let toggleItem: NSMenuItem
@@ -40,6 +44,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         stateLabel.isEnabled = false
         menu.addItem(stateLabel)
+        for item in [micActivity, systemActivity] {
+            item.isEnabled = false
+            item.isHidden = true
+            menu.addItem(item)
+        }
 
         transcriptionLabel.isEnabled = false
         transcriptionLabel.isHidden = true
@@ -100,13 +109,41 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// recording.
     func update(recording: Bool, elapsed: String?, remaining: String? = nil) {
         self.recording = recording
+        micActivity.isHidden = !recording
+        systemActivity.isHidden = !recording
         stateLabel.title = recording ? "● recording · \(elapsed ?? "0:00") · \(remaining ?? "30:00") remaining" : "idle"
         toggleItem.title = recording ? "Stop recording" : "Start recording (30′ adjustable)"
         extensionItems.forEach { $0.isHidden = !recording }
         updateStatusAppearance()
     }
 
-    func menuWillOpen(_ menu: NSMenu) { onMenuOpen?() }
+    func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
+        onMenuOpen?()
+    }
+
+    func menuDidClose(_ menu: NSMenu) { isMenuOpen = false }
+
+    func updateCapture(_ tracks: [(String, CaptureActivity.Snapshot)]) {
+        captureWarning = tracks.filter { $0.1.warning }
+            .map { "\($0.0): \($0.1.error ?? $0.1.state)" }.joined(separator: " · ")
+        if captureWarning?.isEmpty == true { captureWarning = nil }
+        if isMenuOpen {
+            for (item, track) in zip([micActivity, systemActivity], tracks) {
+                let (name, snapshot) = track
+                let count = Int((snapshot.level * 8).rounded())
+                let meter = String(repeating: "▰", count: count) + String(repeating: "▱", count: 8 - count)
+                item.attributedTitle = NSAttributedString(
+                    string: "\(name)  \(meter)  \(snapshot.state)",
+                    attributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                        .foregroundColor: snapshot.warning ? NSColor.systemRed : NSColor.labelColor,
+                    ])
+                item.toolTip = snapshot.error ?? "\(snapshot.frames) audio frames written"
+            }
+        }
+        updateStatusAppearance()
+    }
 
     func updateDiskSpace(warning: String?) {
         diskWarning = warning
@@ -123,9 +160,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func updateStatusAppearance() {
-        statusItem.button?.title = diskWarning == nil ? "" : " ⚠"
-        statusItem.button?.contentTintColor = recording || diskWarning != nil ? .systemRed : nil
-        statusItem.button?.toolTip = diskWarning ?? "Quill"
+        statusItem.button?.title = diskWarning == nil && captureWarning == nil ? "" : " ⚠"
+        statusItem.button?.contentTintColor = recording || diskWarning != nil || captureWarning != nil ? .systemRed : nil
+        statusItem.button?.toolTip = captureWarning ?? diskWarning ?? "Quill"
     }
 
     func updateTitle(_ title: String) {

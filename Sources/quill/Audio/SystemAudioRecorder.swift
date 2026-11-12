@@ -6,7 +6,7 @@ import Foundation
 /// Records the Mac's playback mix through ScreenCaptureKit. The stream is
 /// configured for audio and has no screen-output delegate, so no video frames
 /// are delivered to or stored by quill.
-final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
+final class SystemAudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     enum RecorderError: Error, CustomStringConvertible {
         case noDisplay
         case streamStartFailed(Error)
@@ -30,6 +30,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
         }
     }
 
+    let activity = CaptureActivity()
     private let queue = DispatchQueue(label: "com.digimata.quill.system-audio")
     private var stream: SCStream?
     private var file: AVAudioFile?
@@ -48,6 +49,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
     func start(writingTo url: URL) async throws {
         guard !isRecording else { return }
 
+        activity.begin()
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.excludingDesktopWindows(
@@ -83,7 +85,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
         let newStream = SCStream(
             filter: filter,
             configuration: configuration,
-            delegate: nil
+            delegate: self
         )
         do {
             try newStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
@@ -152,13 +154,19 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
               CMSampleBufferDataIsReady(sampleBuffer)
         else { return }
 
+        activity.receive()
         do {
             try write(sampleBuffer)
         } catch {
+            activity.fail("System audio write failed: \(error)")
             FileHandle.standardError.write(Data(
                 "system track write failed: \(error)\n".utf8
             ))
         }
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        activity.fail("System audio stopped: \(error)")
     }
 
     private func write(_ sampleBuffer: CMSampleBuffer) throws {
@@ -210,21 +218,12 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
         guard status == noErr else {
             throw RecorderError.audioBufferUnreadable(status)
         }
-        measureSignal(in: buffer)
-        try file?.write(from: buffer)
-    }
-
-    private func measureSignal(in buffer: AVAudioPCMBuffer) {
+        guard let file else { return }
+        try file.write(from: buffer)
+        let peak = audioPeak(buffer)
         capturedFrames += AVAudioFramePosition(buffer.frameLength)
-        guard buffer.format.commonFormat == .pcmFormatFloat32 else { return }
-        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
-            guard let data = audioBuffer.mData else { continue }
-            let samples = data.assumingMemoryBound(to: Float.self)
-            let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
-            for index in 0..<count {
-                capturedPeak = max(capturedPeak, abs(samples[index]))
-            }
-        }
+        capturedPeak = max(capturedPeak, peak)
+        activity.saved(frames: buffer.frameLength, peak: peak)
     }
 
     private func cleanup() {
