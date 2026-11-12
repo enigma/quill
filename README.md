@@ -32,7 +32,10 @@ or kernel extension). Apple Silicon recommended for transcription speed.
    time and time remaining. While recording, choose **Extend 10′**, **Extend 30′**,
    or **Extend 1h** to add time to the current deadline; extensions can be repeated.
    Each new recording starts with a fresh 30-minute limit.
-4. **Click → Stop recording** when the meeting ends (or let the timer stop it). Transcription starts
+4. Optionally choose **Set recording title…** before or during recording. The
+   title is saved immediately in `title.txt` inside the session folder; edit it
+   from the same menu. A title set while idle applies to the next recording only.
+5. **Click → Stop recording** when the meeting ends (or let the timer stop it). Transcription starts
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
 
@@ -42,6 +45,7 @@ Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
 |---|---|
 | `mic.caf` | your side (default input device, AAC) |
 | `system.caf` | everything the Mac played — the other side of the call (AAC) |
+| `title.txt` | optional recording title, searchable with `rg` |
 | `meta.json` | start/end timestamps, duration, per-track start offsets |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |

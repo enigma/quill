@@ -8,6 +8,7 @@ import Foundation
 final class RecordingSession {
     let dir: URL
     let startedAt = Date()
+    private(set) var title = ""
 
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
@@ -31,6 +32,15 @@ final class RecordingSession {
         }
         try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
         dir = candidate
+    }
+
+    /// Persist immediately so the title survives even an unclean shutdown.
+    /// Keep the directory stable while capture and transcription use it.
+    func setTitle(_ value: String) throws {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        try Data((value.isEmpty ? "" : value + "\n").utf8)
+            .write(to: dir.appendingPathComponent("title.txt"), options: .atomic)
+        title = value
     }
 
     /// Start the mic first so its route is settled before system capture. If

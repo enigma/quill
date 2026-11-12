@@ -85,10 +85,12 @@ final class AppController {
     private var ticker: Timer?
     private var isStarting = false
     private var deadline: Date?
+    private var nextTitle = ""
 
     init(root: URL) {
         self.root = root
         menuBar.onExtend = { [weak self] in self?.extend(by: $0) }
+        menuBar.onTitle = { [weak self] in self?.editTitle() }
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
@@ -126,9 +128,11 @@ final class AppController {
             defer { isStarting = false }
             do {
                 let newSession = try RecordingSession(root: root)
+                try newSession.setTitle(nextTitle)
                 try await newSession.start()
                 session = newSession
                 deadline = Date().addingTimeInterval(30 * 60)
+                nextTitle = ""
                 FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
             } catch {
                 FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
@@ -157,6 +161,7 @@ final class AppController {
         ))
         self.session = nil
         deadline = nil
+        menuBar.updateTitle(nextTitle)
         ticker?.invalidate()
         ticker = nil
         menuBar.update(recording: false, elapsed: nil)
@@ -199,6 +204,23 @@ final class AppController {
         guard let deadline, session != nil else { return }
         self.deadline = deadline.addingTimeInterval(interval)
         tick()
+    }
+
+    private func editTitle() {
+        guard !isStarting else { return }
+        let target = session
+        guard let title = menuBar.promptForTitle(current: target?.title ?? nextTitle) else { return }
+        do {
+            if let target {
+                try target.setTitle(title)
+                if session === target { menuBar.updateTitle(title) }
+            } else {
+                nextTitle = title
+                menuBar.updateTitle(title)
+            }
+        } catch {
+            notifyUser(title: "quill — couldn't save title", body: "\(error)")
+        }
     }
 
     private func openFolder() {

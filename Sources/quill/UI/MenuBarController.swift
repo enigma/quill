@@ -9,9 +9,11 @@ final class MenuBarController {
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let toggleItem: NSMenuItem
+    private let titleItem: NSMenuItem
     private var extensionItems: [NSMenuItem] = []
 
     var onExtend: ((TimeInterval) -> Void)?
+    var onTitle: (() -> Void)?
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -25,6 +27,7 @@ final class MenuBarController {
             action: #selector(toggleClicked),
             keyEquivalent: "r"
         )
+        titleItem = NSMenuItem(title: "Set recording title…", action: #selector(titleClicked), keyEquivalent: "")
 
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -48,6 +51,8 @@ final class MenuBarController {
             extensionItems.append(item)
         }
 
+        menu.addItem(titleItem)
+
         let openFolder = NSMenuItem(
             title: "Open recordings folder",
             action: #selector(openFolderClicked),
@@ -64,7 +69,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, quit] + extensionItems {
+        for item in [toggleItem, titleItem, openFolder, quit] + extensionItems {
             item.target = self
         }
 
@@ -87,6 +92,26 @@ final class MenuBarController {
         toggleItem.title = recording ? "Stop recording" : "Start recording (30′ adjustable)"
         extensionItems.forEach { $0.isHidden = !recording }
         statusItem.button?.contentTintColor = recording ? .systemRed : nil
+    }
+
+    func updateTitle(_ title: String) {
+        titleItem.title = title.isEmpty ? "Set recording title…" : "Edit recording title… (\(title))"
+    }
+
+    func promptForTitle(current: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Recording title"
+        alert.informativeText = "Optional. Saved as title.txt in the recording folder."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = current
+        field.placeholderString = "e.g. Weekly planning"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Show transcription progress/failure as a second status line in the
@@ -120,6 +145,7 @@ final class MenuBarController {
     }
 
     @objc private func extendClicked(_ sender: NSMenuItem) { onExtend?(TimeInterval(sender.tag * 60)) }
+    @objc private func titleClicked() { onTitle?() }
     @objc private func toggleClicked() { onToggle?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
