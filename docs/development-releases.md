@@ -54,9 +54,14 @@ verify its signature, stop on a running app, and create/reuse the local signing 
 
 ## CI behavior
 
-`.github/workflows/ci.yml` runs on PRs and pushes to `dev`, `release`, and
+`.github/workflows/ci.yml` runs on pushes to `dev`, `release`, and
 `feat/release-pipeline`. Manual dispatch becomes available once the workflow exists
 on the repository's default branch. All jobs have read-only repository permissions.
+Opening or updating a PR does not trigger CI. External contributions must be reviewed
+before being brought onto a named branch; merging code authorizes it to execute on
+that branch's next build. Workflow and build-script changes need that same review.
+Future signing jobs must be limited to protected release tags and a restricted
+signing environment, never PR events or artifacts from untrusted runs.
 
 1. Linux validates workflow syntax, security, and the action lockfile.
 2. A fresh `macos-15` arm64 runner selects Xcode 16.4 explicitly, reports toolchain
