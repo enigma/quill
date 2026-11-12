@@ -33,4 +33,10 @@ echo "Recordings: $QUILL_RECORDINGS_DIR"
 if [[ "${3:-}" == --check ]]; then
     exec "$app/Contents/MacOS/quill" doctor --paths-only
 fi
-exec "$app/Contents/MacOS/quill" run
+# LaunchServices gives capture permissions the same app context as Finder.
+# A new instance is required for these environment overrides to take effect.
+echo 'Opening Quill as an app; quit it through its menu when finished.'
+exec /usr/bin/open -n -a "$app" \
+    --env "QUILL_CONFIG_PATH=$QUILL_CONFIG_PATH" \
+    --env "QUILL_RECORDINGS_DIR=$QUILL_RECORDINGS_DIR" \
+    --args run

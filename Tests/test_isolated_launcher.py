@@ -26,9 +26,17 @@ print(json.dumps({'config': os.environ['QUILL_CONFIG_PATH'],
 ''')
         binary.chmod(0o755)
         self.data = self.root / 'test data'
+        # Substitute only LaunchServices: never open an actual GUI app in tests.
+        opener = self.root / 'open-stub'
+        opener.write_text('#!' + sys.executable + '\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n')
+        opener.chmod(0o755)
+        self.launcher = self.root / 'run-isolated.sh'
+        source = (REPO / 'scripts/run-isolated.sh').read_text()
+        self.assertIn('exec /usr/bin/open ', source)
+        self.launcher.write_text(source.replace('exec /usr/bin/open ', f'exec "{opener}" '))
 
     def launch(self, *args):
-        return subprocess.run(['/bin/bash', str(REPO / 'scripts/run-isolated.sh'),
+        return subprocess.run(['/bin/bash', str(self.launcher),
                                str(self.app), str(self.data), *args],
                               env={**os.environ, 'QUILL_CONFIG_PATH': '/daily/config.json',
                                    'QUILL_RECORDINGS_DIR': '/daily/recordings'},
@@ -37,10 +45,12 @@ print(json.dumps({'config': os.environ['QUILL_CONFIG_PATH'],
     def test_launch_overrides_inherited_daily_paths(self):
         result = self.launch()
         self.assertEqual(result.returncode, 0, result.stderr)
-        settings = json.loads(result.stdout.splitlines()[-1])
-        self.assertEqual(Path(settings['config']).resolve(), (self.data / 'config.json').resolve())
-        self.assertEqual(Path(settings['recordings']).resolve(), (self.data / 'recordings').resolve())
-        self.assertEqual(settings['args'], ['run'])
+        arguments = json.loads(result.stdout.splitlines()[-1])
+        self.assertEqual(arguments, [
+            '-n', '-a', str(self.app),
+            '--env', f'QUILL_CONFIG_PATH={self.data.resolve()}/config.json',
+            '--env', f'QUILL_RECORDINGS_DIR={self.data.resolve()}/recordings',
+            '--args', 'run'])
         self.assertEqual(json.loads((self.data / 'config.json').read_text()), {})
 
     def test_check_only_preserves_existing_test_config(self):

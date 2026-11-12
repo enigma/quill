@@ -73,7 +73,13 @@ run it with its own explicit test directory:
 ```
 
 The first command reports identity and paths without launching UI/capture or checking
-permissions. The second runs the app. The helper creates `config.json` with `{}` only
+permissions. The second opens a new app instance through macOS LaunchServices,
+passing the isolated paths explicitly. This avoids launching capture as a child of
+the terminal, which can change macOS permission attribution. Quit this instance
+through its menu; Ctrl-C in the terminal does not stop it. If Gatekeeper requires
+Open Anyway, approve it, quit the relaunched app, then rerun the helper so the test
+paths are applied. Confirm those paths in the app menu before recording.
+The helper creates `config.json` with `{}` only
 if absent, preserves an existing test config, and directs recordings and pending
 transcription scans to `recordings/` under the test directory. It does not modify the
 app bundle or the normal configuration. Customize only this test config as needed.
