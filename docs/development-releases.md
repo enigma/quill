@@ -3,7 +3,69 @@
 This first milestone produces a preview ZIP locally and defines a GitHub Actions
 workflow to produce the same artifact. It neither installs the app nor publishes a
 GitHub Release. No signing certificate, Apple account, or custom GitHub secret is
-needed. Models are downloaded at runtime, not during packaging or tests.
+needed for the ordinary preview. Optional persistent signing is described below.
+Models are downloaded at runtime, not during packaging or tests.
+
+## Persistent signing experiment
+
+The `CI` workflow accepts a manual `sign_preview` boolean (default false). Signing
+is allowed only for a manual run on `refs/heads/release`; pushes continue to build
+ordinary ad-hoc previews. No PR trigger or automatic publication is added.
+
+Configure the repository environment `signing` before running it:
+
+- Require the maintainer's approval; leave prevent-self-review off for a solo
+  maintainer, and disable administrator bypass.
+- Allow only the branch `release`, with no tag rule.
+- Store `SIGNING_CERTIFICATE_P12` (base64 of the encrypted P12) and
+  `SIGNING_CERTIFICATE_PASSWORD` (its export password) as environment secrets.
+
+Keep the P12 and its password backed up in a password manager. Neither belongs
+in Git. Use a dedicated distribution identity, separate from `QuillLocalDev`.
+
+After reviewing this change, integrate it into `dev` (the default branch), then
+create `release` from the same reviewed commit and push both. GitHub requires
+the workflow on the default branch for the manual dispatch UI. In Actions → CI →
+Run workflow, select `release` and enable `sign_preview`. Alternatively:
+
+```sh
+gh workflow run ci.yml --repo enigma/quill --ref release -f sign_preview=true
+```
+
+The build job tests and packages without signing secrets. The signing job waits
+for environment approval, checks out the run's commit, and downloads only that
+run's matching preview artifact. Review the commit and workflow before approving.
+Rerun the entire workflow if needed: rerunning only a failed signing job does not
+produce an artifact with the new attempt number.
+
+`scripts/sign-preview.py` checks the archive statically, imports the identity into
+a temporary Keychain, signs with its certificate fingerprint, and verifies that
+the signature matches. It never executes the app, installs dependencies, adds
+certificate trust, or imports into the login/System Keychain. It restores the
+Keychain search list and removes temporary credentials before publishing output.
+Normal failures and termination trigger cleanup; a hard-killed hosted runner is
+discarded by GitHub. Do not use this workflow on a shared/self-hosted runner.
+
+Secrets are supplied only to the signing step and removed from the environment
+inherited by its subprocesses. macOS's `security` utility accepts passwords as
+process arguments, so the signing runner must be treated as trusted. Tool output
+and command arguments are not dumped on errors. These controls do not make
+malicious code in the approved job safe: anyone approving it must review changes
+to the workflow and scripts it uses.
+
+Download `Quill-signed-preview-arm64-<commit>-<attempt>` from the run. It contains
+`Quill-macos-arm64-signed-preview.zip` and its SHA-256 sidecar; the ZIP contains
+`download/Quill.app` and `BUILD.txt`, including the signing certificate fingerprint.
+Only these two output files are uploaded. This is still a preview artifact, not a
+GitHub Release, and it is not notarized.
+
+Test build A at a fixed app location separate from the daily app, using the isolated
+launcher below. Grant permissions and record both sources. Produce build B by
+dispatching a new run (its build number changes), quit A, and replace it at the
+same location. Do not reset permissions between A and B. Confirm both BUILD.txt
+files name the same certificate fingerprint. Record Gatekeeper/Open Anyway prompts
+separately from microphone and screen/system-audio prompts. A persistent self-signed
+identity does not guarantee Gatekeeper acceptance; this experiment measures it.
 
 ## Local build and inspection
 

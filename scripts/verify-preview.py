@@ -54,7 +54,7 @@ def check_archive_paths(archive):
             raise ValueError(f'Unsafe archive member: {entry.filename}')
 
 
-def verify(archive_path):
+def verify(archive_path, *, run_app=True):
     archive_path = archive_path.resolve()
     checksum = Path(str(archive_path) + '.sha256').read_text().split()[0]
     if hashlib.sha256(archive_path.read_bytes()).hexdigest() != checksum:
@@ -107,6 +107,9 @@ def verify(archive_path):
             dep = line.strip().split(' (', 1)[0]
             if not dep.startswith(('/System/Library/', '/usr/lib/')):
                 raise ValueError(f'Unpackaged dynamic dependency: {dep}')
+        if not run_app:
+            print('Preview verified statically; app was not executed.')
+            return
         help_text = subprocess.check_output([str(binary), '--help'], text=True)
         if re.search(r'^  install\b', help_text, re.MULTILINE):
             raise ValueError('Packaged app exposes login-agent installation')
