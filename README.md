@@ -88,6 +88,14 @@ and [Inside Code Signing: Requirements](https://developer.apple.com/documentatio
 
 ## How to use
 
+Quill checks free disk space on launch, every 30 seconds, and when you open
+the menu. Below **10 GB** free on the startup or recordings disk, a red
+warning appears in the menu with the remaining space, and a warning symbol
+appears beside the menu-bar feather even while idle. The warning clears
+automatically after space is freed. Recording remains available. This is a
+low-space warning, not a guarantee that macOS will keep capture running above
+that threshold.
+
 1. **Run it** (`quill` in a terminal, or the LaunchAgent).
 2. **Click the feather in the menu bar → Start recording (30′ adjustable).** First use prompts
    for microphone and Screen Recording permissions. Quill registers only the

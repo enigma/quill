@@ -4,10 +4,13 @@ import AppKit
 /// a glance and provides the only persistent control surface for the daemon
 /// (since we run as `.accessory` — no dock icon, no main window).
 @MainActor
-final class MenuBarController {
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
+    private let diskSpaceLabel: NSMenuItem
+    private var recording = false
+    private var diskWarning: String?
     private let toggleItem: NSMenuItem
     private let titleItem: NSMenuItem
     private var extensionItems: [NSMenuItem] = []
@@ -17,17 +20,20 @@ final class MenuBarController {
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onMenuOpen: (() -> Void)?
 
-    init() {
+    override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         stateLabel = NSMenuItem(title: "idle", action: nil, keyEquivalent: "")
         transcriptionLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        diskSpaceLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         toggleItem = NSMenuItem(
             title: "Start recording (30′ adjustable)",
             action: #selector(toggleClicked),
             keyEquivalent: "r"
         )
         titleItem = NSMenuItem(title: "Set recording title…", action: #selector(titleClicked), keyEquivalent: "")
+        super.init()
 
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -38,6 +44,10 @@ final class MenuBarController {
         transcriptionLabel.isEnabled = false
         transcriptionLabel.isHidden = true
         menu.addItem(transcriptionLabel)
+
+        diskSpaceLabel.isEnabled = false
+        diskSpaceLabel.isHidden = true
+        menu.addItem(diskSpaceLabel)
 
         menu.addItem(.separator())
 
@@ -69,6 +79,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
+        menu.delegate = self
         for item in [toggleItem, titleItem, openFolder, quit] + extensionItems {
             item.target = self
         }
@@ -84,14 +95,37 @@ final class MenuBarController {
     }
 
     /// Reflect recording state in the icon tint and menu item titles. The
-    /// menu bar shows only the feather (red while recording); the elapsed
+    /// menu bar shows the feather and any disk warning; the elapsed
     /// counter lives in the menu's state label. Call once a second while
     /// recording.
     func update(recording: Bool, elapsed: String?, remaining: String? = nil) {
+        self.recording = recording
         stateLabel.title = recording ? "● recording · \(elapsed ?? "0:00") · \(remaining ?? "30:00") remaining" : "idle"
         toggleItem.title = recording ? "Stop recording" : "Start recording (30′ adjustable)"
         extensionItems.forEach { $0.isHidden = !recording }
-        statusItem.button?.contentTintColor = recording ? .systemRed : nil
+        updateStatusAppearance()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) { onMenuOpen?() }
+
+    func updateDiskSpace(warning: String?) {
+        diskWarning = warning
+        diskSpaceLabel.isHidden = warning == nil
+        diskSpaceLabel.title = warning ?? ""
+        diskSpaceLabel.attributedTitle = warning.map {
+            NSAttributedString(string: " ⚠ \($0) ", attributes: [
+                .foregroundColor: NSColor.white,
+                .backgroundColor: NSColor.systemRed,
+                .font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize),
+            ])
+        }
+        updateStatusAppearance()
+    }
+
+    private func updateStatusAppearance() {
+        statusItem.button?.title = diskWarning == nil ? "" : " ⚠"
+        statusItem.button?.contentTintColor = recording || diskWarning != nil ? .systemRed : nil
+        statusItem.button?.toolTip = diskWarning ?? "Quill"
     }
 
     func updateTitle(_ title: String) {

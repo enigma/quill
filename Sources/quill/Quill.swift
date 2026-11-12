@@ -83,6 +83,7 @@ final class AppController {
     private let transcription = TranscriptionCoordinator()
     private var session: RecordingSession?
     private var ticker: Timer?
+    private var diskSpaceTimer: Timer?
     private var isStarting = false
     private var deadline: Date?
     private var nextTitle = ""
@@ -94,7 +95,15 @@ final class AppController {
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
+        menuBar.onMenuOpen = { [weak self] in self?.refreshDiskSpace() }
         menuBar.update(recording: false, elapsed: nil)
+        refreshDiskSpace()
+        let diskTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshDiskSpace() }
+        }
+        RunLoop.main.add(diskTimer, forMode: .common)
+        RunLoop.main.add(diskTimer, forMode: .eventTracking)
+        diskSpaceTimer = diskTimer
 
         Task { [transcription, root] in
             await transcription.setStatusHandler { status in
@@ -108,6 +117,7 @@ final class AppController {
 
     /// Stop any live session cleanly (finalizing files) and exit.
     func shutdown() {
+        diskSpaceTimer?.invalidate()
         stopSession()
         NSApp.terminate(nil)
     }
@@ -122,6 +132,7 @@ final class AppController {
     }
 
     private func startSession() {
+        refreshDiskSpace()
         isStarting = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -226,6 +237,35 @@ final class AppController {
     private func openFolder() {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         NSWorkspace.shared.open(root)
+    }
+
+    /// Check actual free bytes, without counting space macOS might reclaim.
+    /// The startup disk matters to system capture even when recordings go
+    /// to an external volume. Query fresh filesystem attributes each time.
+    private func refreshDiskSpace() {
+        let locations: [(String, URL)] = [
+            ("startup disk", URL(fileURLWithPath: "/System/Volumes/Data")),
+            ("recordings disk", root),
+        ]
+        var warnings: [String] = []
+        for (name, url) in locations {
+            do {
+                let attributes = try FileManager.default.attributesOfFileSystem(forPath: url.path)
+                guard let free = attributes[.systemFreeSize] as? NSNumber else {
+                    warnings.append("Can't check \(name) space")
+                    continue
+                }
+                if free.int64Value < 10_000_000_000 {
+                    let gb = String(format: "%.1f", Double(free.int64Value) / 1_000_000_000)
+                    warnings.append("Low space: \(gb) GB free on \(name) (below 10 GB)")
+                    // Usually both paths share a volume; one warning suffices.
+                    break
+                }
+            } catch {
+                warnings.append("Can't check \(name) space")
+            }
+        }
+        menuBar.updateDiskSpace(warning: warnings.isEmpty ? nil : warnings.joined(separator: " · "))
     }
 
     private static func format(_ interval: TimeInterval) -> String {
