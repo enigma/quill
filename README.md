@@ -20,6 +20,72 @@ quill install --launch-at-login   # optional — runs in the background on login
 **Requires:** macOS 15+ (ScreenCaptureKit for system audio — no virtual device
 or kernel extension). Apple Silicon recommended for transcription speed.
 
+## Rebuilding the local app
+
+Use a persistent code-signing certificate so macOS can recognize successive
+builds and retain recording permissions. Ad-hoc signing (`codesign -s -`)
+changes the app's identity on each rebuild.
+
+Quit Quill, then build, sign, install, and reopen it with:
+
+```sh
+make install-app
+```
+
+The default destination is `~/Applications/Quill.app`. Override it with an
+absolute path (use the same path for future updates):
+
+```sh
+QUILL_APP_PATH="$HOME/Other Apps/Quill.app" make install-app
+```
+
+The installer sets a fixed system `PATH` before running any external commands
+and resolves Swift explicitly with `/usr/bin/xcrun --find swift`. Tools injected
+through the caller's `PATH` are ignored.
+
+Every install builds a **fresh bundle** from the compiled executable and the
+repository's `Info.plist`. No code, resources, entitlements, or arbitrary plist
+settings are copied from the installed app. For an update, the installer first
+verifies the existing app's signature and retains only its validated bundle
+identifier. A certificate-signed update must satisfy the previous app's
+signing requirement before it can replace it. An invalid existing signature
+stops installation rather than being repaired by re-signing its contents.
+
+The installer reuses a **QuillLocalDev** identity (or **Quill Development**),
+selected by certificate fingerprint. If neither exists and there is **no app
+at the destination**, it creates a local code-signing certificate and private
+key once, imports them into your default Keychain, and removes temporary key
+files. The certificate lasts ten years and is restricted to code signing;
+it is not a certificate authority. No certificate trust settings or recording
+permissions are changed. Keychain may ask you to allow private-key access.
+
+Keep the certificate and private key in Keychain for future builds. If an app
+is already installed and its key is missing, the installer stops rather than
+silently creating a new identity. It also refuses ad-hoc signing and ambiguous
+certificate names. The script contains no personal private keys or credentials
+and can be shared; each person's Keychain supplies their own signing identity.
+
+You can use an existing Apple Development certificate instead:
+
+```sh
+QUILL_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" make install-app
+```
+
+Switching from the current ad-hoc build to the certificate-signed build may
+require **one last** permission reset. Quit Quill and run these commands for
+the existing `local.quill.app` bundle, then start recording and grant access:
+
+```sh
+tccutil reset Microphone local.quill.app
+tccutil reset ScreenCapture local.quill.app
+open ~/Applications/Quill.app
+```
+
+Keep using the same certificate, bundle identifier, and app path afterward.
+Do not copy unsigned or ad-hoc executables into the signed app manually.
+Apple documents identity continuity in [Code Signing In Depth](https://developer.apple.com/library/archive/technotes/tn2206/)
+and [Inside Code Signing: Requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
 ## How to use
 
 1. **Run it** (`quill` in a terminal, or the LaunchAgent).
