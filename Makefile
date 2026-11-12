@@ -5,3 +5,10 @@ install-app:
 .PHONY: test-capture
 test-capture:
 	/bin/bash scripts/test-capture.sh
+
+.PHONY: build-app test-installer
+build-app:
+	/bin/bash scripts/build-app.sh
+
+test-installer:
+	python3 -m unittest discover -s Tests -p 'test_*.py'

@@ -75,6 +75,12 @@ class InstallerTests(unittest.TestCase):
         script = script.replace('/usr/libexec/PlistBuddy', f'"{self.bin}/PlistBuddy"')
         script = script.replace('/usr/bin/xcrun', f'"{self.bin}/xcrun"')
         (self.root / 'scripts/install-app.sh').write_text(script)
+        shutil.copy(REPO / 'scripts/assemble-app.sh', self.root / 'scripts/assemble-app.sh')
+        for relative in ['LICENSE', '.build/checkouts/FluidAudio/LICENSE',
+                         '.build/checkouts/swift-argument-parser/LICENSE.txt']:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('Fixture license\n')
         for tool in ['pgrep', 'xcrun', 'swift', 'security', 'codesign', 'openssl', 'PlistBuddy', 'open']:
             file = self.bin / tool
             file.write_text(TOOLS.replace('#!/usr/bin/env python3', '#!' + sys.executable))

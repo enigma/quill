@@ -1,5 +1,10 @@
 // swift-tools-version:6.0
 import PackageDescription
+import Foundation
+
+// Packaging supplies the same metadata for the embedded and outer app plist.
+let bundlePlist = ProcessInfo.processInfo.environment["QUILL_BUNDLE_PLIST"]
+    ?? "Sources/quill/Info.plist"
 
 let package = Package(
     name: "quill",
@@ -24,7 +29,7 @@ let package = Package(
                     "-Xlinker", "-sectcreate",
                     "-Xlinker", "__TEXT",
                     "-Xlinker", "__info_plist",
-                    "-Xlinker", "Sources/quill/Info.plist",
+                    "-Xlinker", bundlePlist,
                 ]),
             ]
         ),

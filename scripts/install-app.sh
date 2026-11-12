@@ -132,13 +132,12 @@ CONFIG
     echo "Created QuillLocalDev in your Keychain; future builds will reuse it."
 fi
 
-mkdir -p "$staged_app/Contents/MacOS"
-cp Sources/quill/Info.plist "$staged_app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" "$staged_app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string quill' "$staged_app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$staged_app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$staged_app/Contents/Info.plist"
-cp "$bin_dir/quill" "$staged_app/Contents/MacOS/quill"
+cp Sources/quill/Info.plist "$staging/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" "$staging/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string quill' "$staging/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$staging/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$staging/Info.plist"
+/bin/bash scripts/assemble-app.sh "$bin_dir/quill" "$staging/Info.plist" "$staged_app"
 codesign --force --sign "$identity" --timestamp=none "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"
 if [[ -n "$requirement" ]]; then
