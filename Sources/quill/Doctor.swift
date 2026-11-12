@@ -46,13 +46,13 @@ enum DoctorReport {
         }
     }
 
-    /// There is no public API to query the system-audio-capture TCC state
-    /// without side effects, so all we can do is describe the flow.
+    /// ScreenCaptureKit requests permission when its audio stream is first
+    /// created. Querying shareable content here would itself trigger TCC.
     static func checkSystemAudio() -> Check {
         Check(
             name: "system audio",
-            status: .warn("state unknowable until first use — will prompt on first recording"),
-            remediation: "if recordings come out silent: System Settings → Privacy & Security → Screen & System Audio Recording"
+            status: .warn("ScreenCaptureKit permission is requested on first recording"),
+            remediation: "allow Screen Recording when prompted; macOS may require quill to be relaunched once"
         )
     }
 

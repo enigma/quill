@@ -16,7 +16,7 @@ final class MicRecorder: @unchecked Sendable {
     enum RecorderError: Error, CustomStringConvertible {
         case engineStartFailed(Error)
         case fileCreationFailed(Error)
-        case formatUnsupported(AVAudioFormat)
+        case formatUnsupported(String)
 
         var description: String {
             switch self {
@@ -97,7 +97,7 @@ final class MicRecorder: @unchecked Sendable {
             channels: 1,
             interleaved: false
         ) else {
-            throw RecorderError.formatUnsupported(inputFormat)
+            throw RecorderError.formatUnsupported(String(describing: inputFormat))
         }
 
         let settings: [String: Any] = [
@@ -188,7 +188,7 @@ final class MicRecorder: @unchecked Sendable {
         monoFormat: AVAudioFormat
     ) throws {
         guard let converter = AVAudioConverter(from: inputFormat, to: monoFormat) else {
-            throw RecorderError.formatUnsupported(inputFormat)
+            throw RecorderError.formatUnsupported(String(describing: inputFormat))
         }
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let file = self.file else { return }

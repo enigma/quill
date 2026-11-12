@@ -17,17 +17,17 @@ sudo cp .build/release/quill /usr/local/bin/quill
 quill install --launch-at-login   # optional — runs in the background on login
 ```
 
-**Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension). Apple Silicon recommended for
-transcription speed.
+**Requires:** macOS 15+ (ScreenCaptureKit for system audio — no virtual device
+or kernel extension). Apple Silicon recommended for transcription speed.
 
 ## How to use
 
 1. **Run it** (`quill` in a terminal, or the LaunchAgent).
 2. **Click the feather in the menu bar → Start recording.** First use prompts
-   for microphone and System Audio Recording permissions. While recording, the
-   icon turns red with a running elapsed counter, and macOS shows the purple
-   recording indicator.
+   for microphone and Screen Recording permissions. Quill registers only the
+   audio output; it doesn't receive or store screen frames. macOS may require
+   one relaunch after permission is granted. While recording, the icon turns
+   red with a running elapsed counter, and macOS shows the recording indicator.
 3. **Click → Stop recording** when the meeting ends. Transcription starts
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
@@ -107,8 +107,7 @@ quill install --uninstall
 ## Stack
 
 - **Swift** — single SPM executable target
-- **Core Audio process tap** (`AudioHardwareCreateProcessTap`, macOS 14.2+) —
-  system audio capture via a private aggregate device
+- **ScreenCaptureKit** — audio-only system playback capture
 - **AVAudioEngine** — mic capture
 - **AVAudioFile** — streaming AAC encode into CAF
 - **FluidAudio / Parakeet** — on-device Core ML transcription
@@ -116,11 +115,11 @@ quill install --uninstall
 
 ## Gotchas
 
-- A global tap records *everything* the Mac plays — notification dings,
+- The system stream records *everything* the Mac plays — notification dings,
   music, all of it. Don't play Spotify during meetings (or ask for a
   per-process picker if it bothers you).
-- If recordings come out silent, check System Settings → Privacy & Security →
-  Screen & System Audio Recording.
+- If capture fails, check System Settings → Privacy & Security → Screen &
+  System Audio Recording, then relaunch quill.
 - Parakeet v2 is English-only. Other languages will come with the Whisper
   engine.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can

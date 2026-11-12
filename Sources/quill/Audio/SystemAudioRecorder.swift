@@ -1,174 +1,237 @@
-import AVFoundation
-import CoreAudio
+@preconcurrency import AVFoundation
+import CoreMedia
 import Foundation
+@preconcurrency import ScreenCaptureKit
 
-/// Records all system audio output to a file via a Core Audio process tap
-/// (macOS 14.2+). No virtual device, no kernel extension — the tap mixes every
-/// process's output to stereo and hands us buffers through a private aggregate
-/// device. First use triggers the one-time "System Audio Recording" TCC prompt
-/// and lights the purple recording indicator while active.
-final class SystemAudioRecorder {
+/// Records the Mac's playback mix through ScreenCaptureKit. The stream is
+/// configured for audio and has no screen-output delegate, so no video frames
+/// are delivered to or stored by quill.
+final class SystemAudioRecorder: NSObject, SCStreamOutput, @unchecked Sendable {
     enum RecorderError: Error, CustomStringConvertible {
-        case tapCreationFailed(OSStatus)
-        case tapFormatUnreadable(OSStatus)
-        case aggregateCreationFailed(OSStatus)
-        case ioProcCreationFailed(OSStatus)
-        case deviceStartFailed(OSStatus)
+        case noDisplay
+        case streamStartFailed(Error)
+        case audioFormatUnreadable
+        case audioBufferUnreadable(OSStatus)
         case fileCreationFailed(Error)
 
         var description: String {
             switch self {
-            case .tapCreationFailed(let s):
-                return "process tap creation failed (OSStatus \(s)) — check System Settings → Privacy & Security → Screen & System Audio Recording"
-            case .tapFormatUnreadable(let s): return "couldn't read tap stream format (OSStatus \(s))"
-            case .aggregateCreationFailed(let s): return "aggregate device creation failed (OSStatus \(s))"
-            case .ioProcCreationFailed(let s): return "IO proc creation failed (OSStatus \(s))"
-            case .deviceStartFailed(let s): return "device start failed (OSStatus \(s))"
-            case .fileCreationFailed(let e): return "output file creation failed: \(e)"
+            case .noDisplay:
+                return "no display is available for system-audio capture"
+            case .streamStartFailed(let error):
+                return "system-audio capture failed: \(error) — check System Settings → Privacy & Security → Screen & System Audio Recording"
+            case .audioFormatUnreadable:
+                return "couldn't read the system-audio stream format"
+            case .audioBufferUnreadable(let status):
+                return "couldn't read a system-audio buffer (OSStatus \(status))"
+            case .fileCreationFailed(let error):
+                return "system-audio file creation failed: \(error)"
             }
         }
     }
 
-    private var tapID = AudioObjectID(kAudioObjectUnknown)
-    private var aggregateID = AudioObjectID(kAudioObjectUnknown)
-    private var procID: AudioDeviceIOProcID?
+    private let queue = DispatchQueue(label: "com.digimata.quill.system-audio")
+    private var stream: SCStream?
     private var file: AVAudioFile?
-    private let queue = DispatchQueue(label: "com.digimata.quill.system-tap")
+    private var outputURL: URL?
     private(set) var isRecording = false
+
     /// Wall-clock time of the first captured buffer — the track's true start,
     /// used to offset-align the two tracks' transcript timestamps.
     private(set) var firstBufferAt: Date?
+    private var capturedFrames: AVAudioFramePosition = 0
+    private var capturedPeak: Float = 0
 
-    /// Start capturing system audio, encoding AAC into `url` (use a .caf
-    /// extension — CAF needs no finalization pass, so a crash mid-meeting
-    /// loses nothing already written).
-    func start(writingTo url: URL) throws {
+    /// Start an audio-only ScreenCaptureKit stream. macOS may prompt for
+    /// Screen Recording permission on first use; after granting it, macOS can
+    /// require quill to be relaunched before capture succeeds.
+    func start(writingTo url: URL) async throws {
         guard !isRecording else { return }
 
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        description.name = "quill system tap"
-        description.isPrivate = true
-        description.muteBehavior = .unmuted
-
-        var newTapID = AudioObjectID(kAudioObjectUnknown)
-        let status = AudioHardwareCreateProcessTap(description, &newTapID)
-        guard status == noErr else { throw RecorderError.tapCreationFailed(status) }
-        tapID = newTapID
-
+        let content: SCShareableContent
         do {
-            let format = try tapStreamFormat()
-            try createAggregateDevice(tapUUID: description.uuid)
-            file = try makeFile(url: url, format: format)
-            try installIOProc(format: format)
+            content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
         } catch {
-            cleanup()
-            throw error
+            throw RecorderError.streamStartFailed(error)
+        }
+        guard let display = content.displays.first else {
+            throw RecorderError.noDisplay
         }
 
+        // The display is required as a content-filter anchor even though quill
+        // registers only an audio output below.
+        let filter = SCContentFilter(
+            display: display,
+            excludingApplications: [],
+            exceptingWindows: []
+        )
+        let configuration = SCStreamConfiguration()
+        configuration.capturesAudio = true
+        configuration.excludesCurrentProcessAudio = true
+        configuration.sampleRate = 48_000
+        configuration.channelCount = 2
+        configuration.width = 2
+        configuration.height = 2
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        configuration.queueDepth = 1
+        configuration.showsCursor = false
+        configuration.streamName = "quill system audio"
+
+        let newStream = SCStream(
+            filter: filter,
+            configuration: configuration,
+            delegate: nil
+        )
+        do {
+            try newStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+        } catch {
+            throw RecorderError.streamStartFailed(error)
+        }
+
+        outputURL = url
+        firstBufferAt = nil
+        capturedFrames = 0
+        capturedPeak = 0
+        stream = newStream
         isRecording = true
+
+        do {
+            try await newStream.startCapture()
+        } catch {
+            isRecording = false
+            stream = nil
+            outputURL = nil
+            throw RecorderError.streamStartFailed(error)
+        }
+
+        FileHandle.standardError.write(Data(
+            "system: ScreenCaptureKit audio · 2 ch, 48000 Hz\n".utf8
+        ))
     }
 
-    /// Stop capturing and finalize the file. Idempotent.
+    /// Stop capture and finalize the CAF. Waiting for ScreenCaptureKit's stop
+    /// completion prevents its callback queue from racing file finalization.
     func stop() {
         guard isRecording else { return }
         isRecording = false
-        if let procID, aggregateID != kAudioObjectUnknown {
-            AudioDeviceStop(aggregateID, procID)
+
+        if let stream {
+            let stopped = DispatchSemaphore(value: 0)
+            stream.stopCapture { error in
+                if let error {
+                    FileHandle.standardError.write(Data(
+                        "warning: system-audio stream stop failed: \(error)\n".utf8
+                    ))
+                }
+                stopped.signal()
+            }
+            if stopped.wait(timeout: .now() + 5) == .timedOut {
+                FileHandle.standardError.write(Data(
+                    "warning: timed out stopping system-audio stream\n".utf8
+                ))
+            }
+        }
+
+        if capturedFrames > 0, capturedPeak == 0 {
+            FileHandle.standardError.write(Data(
+                "warning: system track contains only digital silence — no Mac output audio was captured\n".utf8
+            ))
         }
         cleanup()
     }
 
-    // MARK: -
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of outputType: SCStreamOutputType
+    ) {
+        guard outputType == .audio, isRecording, sampleBuffer.isValid,
+              CMSampleBufferDataIsReady(sampleBuffer)
+        else { return }
 
-    private func tapStreamFormat() throws -> AVAudioFormat {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioTapPropertyFormat,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var asbd = AudioStreamBasicDescription()
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        let status = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &asbd)
-        guard status == noErr, let format = AVAudioFormat(streamDescription: &asbd) else {
-            throw RecorderError.tapFormatUnreadable(status)
-        }
-        return format
-    }
-
-    private func createAggregateDevice(tapUUID: UUID) throws {
-        let desc: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "quill-tap",
-            kAudioAggregateDeviceUIDKey: UUID().uuidString,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [] as [[String: Any]],
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapUIDKey: tapUUID.uuidString,
-                    kAudioSubTapDriftCompensationKey: true,
-                ]
-            ],
-        ]
-        var newAggregateID = AudioObjectID(kAudioObjectUnknown)
-        let status = AudioHardwareCreateAggregateDevice(desc as CFDictionary, &newAggregateID)
-        guard status == noErr else { throw RecorderError.aggregateCreationFailed(status) }
-        aggregateID = newAggregateID
-    }
-
-    private func makeFile(url: URL, format: AVAudioFormat) throws -> AVAudioFile {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: format.channelCount,
-        ]
         do {
-            return try AVAudioFile(
-                forWriting: url,
-                settings: settings,
-                commonFormat: format.commonFormat,
-                interleaved: format.isInterleaved
-            )
+            try write(sampleBuffer)
         } catch {
-            throw RecorderError.fileCreationFailed(error)
+            FileHandle.standardError.write(Data(
+                "system track write failed: \(error)\n".utf8
+            ))
         }
     }
 
-    private func installIOProc(format: AVAudioFormat) throws {
-        var status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, queue) {
-            [weak self] _, inInputData, _, _, _ in
-            guard let self, let file = self.file else { return }
-            if self.firstBufferAt == nil { self.firstBufferAt = Date() }
-            guard let buffer = AVAudioPCMBuffer(
-                pcmFormat: format,
-                bufferListNoCopy: inInputData,
-                deallocator: nil
-            ) else { return }
+    private func write(_ sampleBuffer: CMSampleBuffer) throws {
+        guard
+            let description = CMSampleBufferGetFormatDescription(sampleBuffer),
+            let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(description),
+            let format = AVAudioFormat(streamDescription: streamDescription)
+        else {
+            throw RecorderError.audioFormatUnreadable
+        }
+
+        if file == nil {
+            guard let outputURL else { return }
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: format.sampleRate,
+                AVNumberOfChannelsKey: format.channelCount,
+            ]
             do {
-                try file.write(from: buffer)
+                file = try AVAudioFile(
+                    forWriting: outputURL,
+                    settings: settings,
+                    commonFormat: format.commonFormat,
+                    interleaved: format.isInterleaved
+                )
             } catch {
-                FileHandle.standardError.write(Data("system track write failed: \(error)\n".utf8))
+                throw RecorderError.fileCreationFailed(error)
+            }
+            firstBufferAt = Date()
+            FileHandle.standardError.write(Data(
+                "system: first audio buffer format=\(format)\n".utf8
+            ))
+        }
+
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: frameCount
+        ) else {
+            throw RecorderError.audioFormatUnreadable
+        }
+        buffer.frameLength = frameCount
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: buffer.mutableAudioBufferList
+        )
+        guard status == noErr else {
+            throw RecorderError.audioBufferUnreadable(status)
+        }
+        measureSignal(in: buffer)
+        try file?.write(from: buffer)
+    }
+
+    private func measureSignal(in buffer: AVAudioPCMBuffer) {
+        capturedFrames += AVAudioFramePosition(buffer.frameLength)
+        guard buffer.format.commonFormat == .pcmFormatFloat32 else { return }
+        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
+            guard let data = audioBuffer.mData else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
+            for index in 0..<count {
+                capturedPeak = max(capturedPeak, abs(samples[index]))
             }
         }
-        guard status == noErr, let procID else { throw RecorderError.ioProcCreationFailed(status) }
-
-        status = AudioDeviceStart(aggregateID, procID)
-        guard status == noErr else { throw RecorderError.deviceStartFailed(status) }
     }
 
     private func cleanup() {
-        if let procID, aggregateID != kAudioObjectUnknown {
-            AudioDeviceDestroyIOProcID(aggregateID, procID)
-        }
-        procID = nil
-        if aggregateID != kAudioObjectUnknown {
-            AudioHardwareDestroyAggregateDevice(aggregateID)
-            aggregateID = AudioObjectID(kAudioObjectUnknown)
-        }
-        if tapID != kAudioObjectUnknown {
-            AudioHardwareDestroyProcessTap(tapID)
-            tapID = AudioObjectID(kAudioObjectUnknown)
-        }
+        stream = nil
         file = nil
+        outputURL = nil
+        capturedFrames = 0
+        capturedPeak = 0
     }
 }

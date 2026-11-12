@@ -83,6 +83,7 @@ final class AppController {
     private let transcription = TranscriptionCoordinator()
     private var session: RecordingSession?
     private var ticker: Timer?
+    private var isStarting = false
 
     init(root: URL) {
         self.root = root
@@ -108,6 +109,7 @@ final class AppController {
     }
 
     private func toggle() {
+        guard !isStarting else { return }
         if session == nil {
             startSession()
         } else {
@@ -116,20 +118,25 @@ final class AppController {
     }
 
     private func startSession() {
-        do {
-            let newSession = try RecordingSession(root: root)
-            try newSession.start()
-            session = newSession
-            FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
-        } catch {
-            FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
-            notifyUser(title: "quill — recording failed", body: "\(error)")
-            return
-        }
+        isStarting = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { isStarting = false }
+            do {
+                let newSession = try RecordingSession(root: root)
+                try await newSession.start()
+                session = newSession
+                FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
+            } catch {
+                FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
+                notifyUser(title: "quill — recording failed", body: "\(error)")
+                return
+            }
 
-        menuBar.update(recording: true, elapsed: "0:00")
-        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+            menuBar.update(recording: true, elapsed: "0:00")
+            ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
         }
     }
 
