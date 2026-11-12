@@ -6,6 +6,7 @@ import AppKit
 @MainActor
 final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
+    private let recordingsLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let diskSpaceLabel: NSMenuItem
@@ -41,6 +42,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.autoenablesItems = false
+
+        let identity = NSMenuItem(title: AppIdentity.displayName, action: nil, keyEquivalent: "")
+        identity.isEnabled = false
+        menu.addItem(identity)
+        let config = NSMenuItem(title: "Config: \(Config.path.path)", action: nil, keyEquivalent: "")
+        config.isEnabled = false
+        menu.addItem(config)
+        recordingsLabel.isEnabled = false
+        menu.addItem(recordingsLabel)
+        menu.addItem(.separator())
 
         stateLabel.isEnabled = false
         menu.addItem(stateLabel)
@@ -82,7 +93,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
-            title: "Quit quill",
+            title: "Quit \(AppIdentity.displayName)",
             action: #selector(quitClicked),
             keyEquivalent: "q"
         )
@@ -160,9 +171,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func updateStatusAppearance() {
-        statusItem.button?.title = diskWarning == nil && captureWarning == nil ? "" : " ⚠"
+        statusItem.button?.title = (AppIdentity.isLocal ? " Local" : "")
+            + (diskWarning == nil && captureWarning == nil ? "" : " ⚠")
         statusItem.button?.contentTintColor = recording || diskWarning != nil || captureWarning != nil ? .systemRed : nil
-        statusItem.button?.toolTip = captureWarning ?? diskWarning ?? "Quill"
+        statusItem.button?.toolTip = captureWarning ?? diskWarning ?? AppIdentity.displayName
+    }
+
+    func updateRecordingsRoot(_ root: URL) {
+        recordingsLabel.title = "Recordings: \(root.path)"
     }
 
     func updateTitle(_ title: String) {

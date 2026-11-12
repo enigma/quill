@@ -23,13 +23,8 @@ done
 staging="$(mktemp -d "$PWD/dist/.build-app.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 plist="$staging/Info.plist"
-cp Sources/quill/Info.plist "$plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier io.github.enigma.quill.preview' "$plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleName Quill Preview' "$plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string quill' "$plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$plist"
-/usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$plist"
-/usr/libexec/PlistBuddy -c 'Add :LSMinimumSystemVersion string 15.0' "$plist"
+. scripts/app-plist.sh
+write_app_plist distribution "$plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $build" "$plist"
 swift_bin="$(xcrun --find swift)"

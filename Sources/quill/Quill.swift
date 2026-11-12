@@ -7,7 +7,7 @@ struct Quill: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "quill",
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
-        subcommands: [Run.self, Doctor.self, Install.self],
+        subcommands: [Run.self, Doctor.self],
         defaultSubcommand: Run.self
     )
 }
@@ -30,6 +30,7 @@ struct Run: ParsableCommand {
     @MainActor
     private func runMain() throws {
         let root = Config.resolveRoot(cliOverride: out)
+        let rootLock = try RecordingRootLock(root: root)
 
         // Non-blocking: permissions prompt on first recording, so warnings at
         // startup are informational, not fatal.
@@ -56,7 +57,7 @@ struct Run: ParsableCommand {
         FileHandle.standardError.write(Data(
             "quill up · recordings → \(root.path) · ^C to quit\n".utf8
         ))
-        app.run()
+        withExtendedLifetime(rootLock) { app.run() }
     }
 }
 
@@ -65,7 +66,14 @@ struct Doctor: ParsableCommand {
         abstract: "Check microphone, system audio, and recordings folder."
     )
 
+    @Flag(name: .long, help: "Print identity and paths without checking permissions or creating folders.")
+    var pathsOnly = false
+
     func run() throws {
+        print("\(AppIdentity.displayName) · \(AppIdentity.identifier)")
+        print("config: \(Config.path.path)")
+        print("recordings: \(Config.resolveRoot(cliOverride: nil).path)")
+        if pathsOnly { return }
         let checks = DoctorReport.run(recordingsRoot: Config.resolveRoot(cliOverride: nil))
         DoctorReport.print(checks)
         if !DoctorReport.allOK(checks) {
@@ -90,6 +98,7 @@ final class AppController {
 
     init(root: URL) {
         self.root = root
+        menuBar.updateRecordingsRoot(root)
         menuBar.onExtend = { [weak self] in self?.extend(by: $0) }
         menuBar.onTitle = { [weak self] in self?.editTitle() }
         menuBar.onToggle = { [weak self] in self?.toggle() }

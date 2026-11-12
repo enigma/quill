@@ -54,7 +54,7 @@ jobs:
           xcrun --show-sdk-version
       - name: Tests
         run: |
-          make test-capture test-installer
+          make test-capture test-separation test-installer
           for script in scripts/*.sh; do bash -n "$script"; done
       - name: Build preview
         run: make build-app

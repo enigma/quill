@@ -9,13 +9,24 @@ import Foundation
 ///       "on_stop": "my-hook"
 ///     }
 ///
-/// Resolution order for the recordings root: --out flag > config file >
+/// Resolution order for the recordings root: --out > QUILL_RECORDINGS_DIR > config file >
 /// ~/Recordings. `on_stop` is a shell command spawned with the session
 /// directory as its argument — after the transcript is written, or right
 /// after recording when transcription is disabled.
 enum Config {
-    static let path = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/quill/config.json")
+    /// Explicit process-local overrides for side-by-side testing. No migration or
+    /// implicit variant suffix: ordinary launches keep the established paths.
+    static var path: URL {
+        configPath(environment: ProcessInfo.processInfo.environment,
+                   home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    static func configPath(environment: [String: String], home: URL) -> URL {
+        if let value = environment["QUILL_CONFIG_PATH"], !value.isEmpty {
+            return URL(fileURLWithPath: (value as NSString).expandingTildeInPath)
+        }
+        return home.appendingPathComponent(".config/quill/config.json")
+    }
 
     static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Recordings", isDirectory: true)
@@ -81,6 +92,9 @@ enum Config {
                 fileURLWithPath: (cliOverride as NSString).expandingTildeInPath,
                 isDirectory: true
             )
+        }
+        if let value = ProcessInfo.processInfo.environment["QUILL_RECORDINGS_DIR"], !value.isEmpty {
+            return URL(fileURLWithPath: (value as NSString).expandingTildeInPath, isDirectory: true)
         }
         return recordingsDir() ?? defaultRoot
     }

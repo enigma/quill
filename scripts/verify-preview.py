@@ -1,5 +1,6 @@
 """Verify the extracted development download, without launching recording/UI."""
 import hashlib
+import fcntl
 import os
 from pathlib import Path, PurePosixPath
 import plistlib
@@ -73,10 +74,12 @@ def verify(archive_path):
         info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
         if embedded_plist(binary) != info:
             raise ValueError('Embedded and bundle Info.plist differ')
+        policy = plistlib.loads((REPO / 'Sources/quill/Info.plist').read_bytes())
         expected_info = {
-            'CFBundleIdentifier': 'io.github.enigma.quill.preview',
+            'CFBundleIdentifier': policy['CFBundleIdentifier'],
             'CFBundleExecutable': 'quill', 'CFBundlePackageType': 'APPL',
             'LSUIElement': True, 'LSMinimumSystemVersion': '15.0',
+            'CFBundleName': policy['CFBundleName'], 'QuillVariant': 'distribution',
         }
         for key, value in expected_info.items():
             if info.get(key) != value:
@@ -104,7 +107,28 @@ def verify(archive_path):
             dep = line.strip().split(' (', 1)[0]
             if not dep.startswith(('/System/Library/', '/usr/lib/')):
                 raise ValueError(f'Unpackaged dynamic dependency: {dep}')
-        subprocess.run([str(binary), '--help'], check=True, stdout=subprocess.DEVNULL)
+        help_text = subprocess.check_output([str(binary), '--help'], text=True)
+        if re.search(r'^  install\b', help_text, re.MULTILINE):
+            raise ValueError('Packaged app exposes login-agent installation')
+        # Exercise the real app's CLI without permissions, capture, model loads,
+        # or touching the user's normal config/recordings.
+        isolated = Path(tmp) / 'isolated'
+        isolated.mkdir()
+        config = isolated / 'config.json'
+        config.write_text('{}')
+        recordings = isolated / 'recordings'
+        recordings.mkdir()
+        env = {**os.environ, 'QUILL_CONFIG_PATH': str(config),
+               'QUILL_RECORDINGS_DIR': str(recordings)}
+        paths = subprocess.check_output([str(binary), 'doctor', '--paths-only'], env=env, text=True)
+        identity = f"{policy['CFBundleName']} · {policy['CFBundleIdentifier']}"
+        if identity not in paths or str(config) not in paths or str(recordings) not in paths:
+            raise ValueError('Runtime identity or config/output override incorrect')
+        with (recordings / '.quill.lock').open('w') as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            attempt = subprocess.run([str(binary), 'run'], env=env, capture_output=True, text=True, timeout=10)
+            if attempt.returncode == 0 or 'already in use' not in attempt.stderr:
+                raise ValueError('App did not reject an occupied recordings root before startup')
         print('Preview verified: arm64, metadata, licenses, signature, dependencies, executable and archive.')
 
 

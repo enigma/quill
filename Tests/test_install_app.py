@@ -22,6 +22,9 @@ elif name == 'xcrun':
     print(os.environ.get('SWIFT_RESOLUTION', str(pathlib.Path(sys.argv[0]).with_name('swift'))))
 elif name == 'swift':
     if '--show-bin-path' in args: print(os.environ['BINARY_DIR'])
+    elif os.environ.get('QUILL_BUNDLE_PLIST'):
+        pathlib.Path(os.environ['CALLS'] + '.build-plist').write_bytes(
+            pathlib.Path(os.environ['QUILL_BUNDLE_PLIST']).read_bytes())
 elif name == 'security':
     if args[0] == 'find-identity' and os.environ.get('NO_KEY') != '1':
         print('  1) ' + 'A' * 40 + ' "QuillLocalDev" (CSSMERR_TP_NOT_TRUSTED)')
@@ -51,7 +54,7 @@ elif name == 'PlistBuddy':
     key = words[1].lstrip(':')
     if words[0] == 'Print': print(data[key])
     else:
-        value = words[-1]
+        value = ' '.join(words[3:] if words[0] == 'Add' else words[2:])
         data[key] = (value == 'true') if words[0] == 'Add' and words[2] == 'bool' else value
         with file.open('wb') as f: plistlib.dump(data, f)
 '''
@@ -76,6 +79,9 @@ class InstallerTests(unittest.TestCase):
         script = script.replace('/usr/bin/xcrun', f'"{self.bin}/xcrun"')
         (self.root / 'scripts/install-app.sh').write_text(script)
         shutil.copy(REPO / 'scripts/assemble-app.sh', self.root / 'scripts/assemble-app.sh')
+        helper = (REPO / 'scripts/app-plist.sh').read_text().replace(
+            '/usr/libexec/PlistBuddy', f'"{self.bin}/PlistBuddy"')
+        (self.root / 'scripts/app-plist.sh').write_text(helper)
         for relative in ['LICENSE', '.build/checkouts/FluidAudio/LICENSE',
                          '.build/checkouts/swift-argument-parser/LICENSE.txt']:
             target = self.root / relative
@@ -121,7 +127,38 @@ class InstallerTests(unittest.TestCase):
         with (self.app / 'Contents/Info.plist').open('rb') as f: info = plistlib.load(f)
         self.assertEqual(info['CFBundleIdentifier'], 'test.quill')
         self.assertNotIn('InjectedSetting', info)
+        self.assertEqual(info['CFBundleName'], 'Quill Local')
+        self.assertEqual(info['QuillVariant'], 'local')
+        self.assertEqual(plistlib.loads(Path(str(self.log) + '.build-plist').read_bytes()), info)
         self.assertTrue(any('-R' in call for call in self.calls()))
+
+    def test_distribution_app_is_never_replaced(self):
+        self.existing()
+        plist = self.app / 'Contents/Info.plist'
+        plist.write_bytes(plistlib.dumps({'CFBundleIdentifier': 'io.github.enigma.quill'}))
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('distribution app', result.stderr)
+        self.assert_old_intact()
+        self.assertFalse(any(call[0] in ['swift', 'security', 'openssl'] for call in self.calls()))
+
+    def test_identity_policy_can_change_without_script_edits(self):
+        policy_path = self.root / 'Sources/quill/Info.plist'
+        policy = plistlib.loads(policy_path.read_bytes())
+        policy.update(QuillLocalIdentifier='example.local', QuillLocalName='Example Local',
+                      CFBundleIdentifier='example.distribution')
+        policy_path.write_bytes(plistlib.dumps(policy))
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = self.app / 'Contents/Info.plist'
+        info = plistlib.loads(installed.read_bytes())
+        self.assertEqual(info['CFBundleIdentifier'], 'example.local')
+        self.assertEqual(info['CFBundleName'], 'Example Local')
+        info['CFBundleIdentifier'] = 'example.distribution'
+        installed.write_bytes(plistlib.dumps(info))
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('distribution app', result.stderr)
 
     def test_invalid_signature_is_untouched(self):
         self.existing()

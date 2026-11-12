@@ -17,7 +17,6 @@ Swift binary, menu-bar tray, no app bundle.
 cd quill
 swift build -c release
 sudo cp .build/release/quill /usr/local/bin/quill
-quill install --launch-at-login   # optional — runs in the background on login
 ```
 
 **Requires:** macOS 15+ (ScreenCaptureKit for system audio — no virtual device
@@ -99,7 +98,7 @@ automatically after space is freed. Recording remains available. This is a
 low-space warning, not a guarantee that macOS will keep capture running above
 that threshold.
 
-1. **Run it** (`quill` in a terminal, or the LaunchAgent).
+1. **Run it** (`quill` in a terminal, or open the app).
 2. **Click the feather in the menu bar → Start recording (30′ adjustable).** First use prompts
    for microphone and Screen Recording permissions. Quill registers only the
    audio output; it doesn't receive or store screen frames. macOS may require
@@ -191,8 +190,6 @@ Optional, at `~/.config/quill/config.json`:
 quill                        # run the menu-bar daemon (^C to quit)
 quill run --out <dir>        # custom recordings root (default ~/Recordings)
 quill doctor                 # check permissions, recordings folder, models
-quill install --launch-at-login
-quill install --uninstall
 ```
 
 ## Stack
@@ -215,7 +212,7 @@ quill install --uninstall
   [supported languages](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3).
   Recognition can still make mistakes, especially with names and mixed-language speech.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
-  attribute permissions to quill itself when running as a LaunchAgent.
+  identify the same build when launched from a terminal or its app bundle.
 
 ### Live capture status
 
@@ -241,10 +238,10 @@ checks need only Command Line Tools and Foundation, not XCTest or model download
 
 The release-pipeline prototype builds an **ad-hoc signed, unnotarized** Apple Silicon
 preview for macOS 15+. It is not yet a public release. It uses the separate bundle
-identifier `io.github.enigma.quill.preview`; the build does not install or open it.
+identifier `io.github.enigma.quill`; the build does not install or open it.
 
 ```sh
-make test-capture test-installer
+make test-capture test-separation test-installer
 make build-app
 python3 scripts/verify-preview.py dist/Quill-macos-arm64-preview.zip
 ```
@@ -255,3 +252,8 @@ The outer Safehouse sandbox remains active. Outside Safehouse, use the normal co
 
 See [the development build and CI guide](docs/development-releases.md) for the
 artifact layout, workflow checks, and remaining production release work.
+
+The daily installation keeps its existing signing identity and paths, and is labelled
+**Quill Local** when rebuilt. For side-by-side tests, use
+`scripts/run-isolated.sh` as described in the guide; normal launches share the normal
+config/recording paths. There is no separate CLI identity or login-agent installer.

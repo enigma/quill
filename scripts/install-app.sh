@@ -12,8 +12,10 @@ if [[ "$app" != /* || "$app" != *.app || -L "$app" ]]; then
     echo "QUILL_APP_PATH must be an absolute .app path, not a symlink." >&2
     exit 1
 fi
+. scripts/app-plist.sh
 installed=false
-bundle_id=local.quill.app
+bundle_id="$(identity_value Local Identifier)"
+distribution_id="$(identity_value Distribution Identifier)"
 requirement=""
 if [[ -e "$app" ]]; then
     if [[ ! -d "$app" ]]; then
@@ -29,6 +31,12 @@ if [[ -e "$app" ]]; then
         echo "Installed app has an unsupported bundle identifier." >&2
         exit 1
     fi
+    case "$bundle_id" in
+        "$distribution_id"|"$distribution_id.preview")
+            echo "This is the distribution app. Refusing to replace it with a local build." >&2
+            exit 1
+            ;;
+    esac
     signature="$(codesign -dv "$app" 2>&1)"
     if ! [[ "$signature" == *"Signature=adhoc"* ]]; then
         requirement="$(codesign -d -r- "$app" 2>&1 | sed -n 's/^designated => //p')"
@@ -83,8 +91,6 @@ if [[ "$swift_bin" != /* || ! -x "$swift_bin" ]]; then
     echo "xcrun did not resolve an executable Swift compiler at an absolute path." >&2
     exit 1
 fi
-"$swift_bin" build -c release
-bin_dir="$("$swift_bin" build -c release --show-bin-path)"
 parent="$(dirname "$app")"
 mkdir -p "$parent"
 staging="$(mktemp -d "$parent/.quill-install.XXXXXX")"
@@ -99,6 +105,12 @@ cleanup() {
 }
 trap cleanup EXIT
 staged_app="$staging/Quill.app"
+
+write_app_plist local "$staging/Info.plist" "$bundle_id"
+flags=(--force-resolved-versions)
+if [[ "${QUILL_DISABLE_SWIFTPM_SANDBOX:-0}" == 1 ]]; then flags+=(--disable-sandbox); fi
+QUILL_BUNDLE_PLIST="$staging/Info.plist" "$swift_bin" build -c release "${flags[@]}"
+bin_dir="$(QUILL_BUNDLE_PLIST="$staging/Info.plist" "$swift_bin" build -c release "${flags[@]}" --show-bin-path)"
 
 if [[ -z "$identity" ]]; then
     # First install only. Retain the key in the user's default Keychain;
@@ -132,11 +144,6 @@ CONFIG
     echo "Created QuillLocalDev in your Keychain; future builds will reuse it."
 fi
 
-cp Sources/quill/Info.plist "$staging/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_id" "$staging/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string quill' "$staging/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundlePackageType string APPL' "$staging/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$staging/Info.plist"
 /bin/bash scripts/assemble-app.sh "$bin_dir/quill" "$staging/Info.plist" "$staged_app"
 codesign --force --sign "$identity" --timestamp=none "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"

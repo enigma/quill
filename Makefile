@@ -12,3 +12,7 @@ build-app:
 
 test-installer:
 	python3 -m unittest discover -s Tests -p 'test_*.py'
+
+.PHONY: test-separation
+test-separation:
+	/bin/bash scripts/test-separation.sh

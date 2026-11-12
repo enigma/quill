@@ -11,7 +11,7 @@ Run from an Apple Silicon Mac with macOS 15+ and Swift 6.1.2 or the CI-selected
 Xcode 16.4 toolchain:
 
 ```sh
-make test-capture test-installer
+make test-capture test-separation test-installer
 make build-app
 python3 scripts/verify-preview.py dist/Quill-macos-arm64-preview.zip
 ```
@@ -41,16 +41,69 @@ the dependency lockfile, and Quill/FluidAudio/ArgumentParser licenses. Assembly
 copies only explicit inputs, not the working tree or an existing installation.
 The verifier checks the extracted binary and bundle, not just the build directory.
 
-The preview is ad-hoc signed, **not notarized**. The separate preview bundle ID
-prevents it from claiming the installed development app's identity. It can still
-use the same recordings configuration, so quit the existing Quill before any manual
-capture test. Permissions for the preview may need to be granted separately.
-Browser-downloaded previews are not yet the frictionless installation intended for
-friends; Developer ID signing and notarization are later work.
+The preview remains ad-hoc signed, **not notarized**, but now uses the final
+accepted distribution identity `io.github.enigma.quill`. Its name is **Quill**.
+The `preview` archive filename describes its testing status, not a separate app ID.
+GitHub and Homebrew will distribute this same app. There is no `install` login-agent command. Building or unpacking the app does not
+enable autorun.
+
+Identity policy is defined once in `Sources/quill/Info.plist`: its top-level
+identifier/name define Quill, and `QuillLocal*` defines the local override. `scripts/app-plist.sh` applies that policy for both packaging
+paths. Swift reads the resulting bundle metadata, including when run from a terminal. Existing
+local installation IDs are still preserved rather than migrated.
+
+## Side-by-side use with the daily local app
+
+| | Distribution | Daily local installation |
+|---|---|---|
+| Bundle identifier | `io.github.enigma.quill` | Existing ID, normally `local.quill.app` |
+| Display/menu name | Quill | Quill Local (after rebuilding) |
+| Installation | Intended for `/Applications/Quill.app` | `~/Applications/Quill.app` |
+| Signing today | Ad-hoc preview | Existing persistent local certificate |
+| Normal config | `~/.config/quill/config.json` | Existing config, unchanged |
+| Normal recordings | Configured path, otherwise `~/Recordings` | Existing path, unchanged |
+
+Normal paths deliberately have no release suffix. Bundle IDs distinguish app
+permissions; they do not isolate data. To test either app alongside the daily one,
+run it with its own explicit test directory:
+
+```sh
+/bin/bash scripts/run-isolated.sh "/absolute/path/to/Quill.app" "$HOME/tmp/quill-test" --check
+/bin/bash scripts/run-isolated.sh "/absolute/path/to/Quill.app" "$HOME/tmp/quill-test"
+```
+
+The first command reports identity and paths without launching UI/capture or checking
+permissions. The second runs the app. The helper creates `config.json` with `{}` only
+if absent, preserves an existing test config, and directs recordings and pending
+transcription scans to `recordings/` under the test directory. It does not modify the
+app bundle or the normal configuration. Customize only this test config as needed.
+Test runs do not inherit the daily config's hooks. Downloaded model caches can be
+shared; they contain model data, not meeting recordings.
+
+Equivalent overrides for scripting are `QUILL_CONFIG_PATH` and
+`QUILL_RECORDINGS_DIR`. Recording path precedence is `--out`, environment override,
+selected config, then the normal default. The menu shows the active config and
+recordings paths; the local variant also has a “Local” menu-bar label.
+
+Updated builds hold `.quill.lock` in the selected recordings directory for their
+whole lifetime, including transcription. A second instance cannot use the same
+root concurrently. Locks release on quit/crash; do not delete the lock file while
+an app is running. **An older daily build does not take this lock**, so use the
+isolated launcher until you have rebuilt it. No files are automatically migrated.
 
 `make install-app` remains the persistent-certificate local installation flow.
-It shares the assembly helper but continues to preserve the installed identifier,
-verify its signature, stop on a running app, and create/reuse the local signing key.
+It now embeds matching local metadata, preserves the installed ID/signing requirement,
+and labels the app Quill Local. It refuses to overwrite a distribution app even
+if `QUILL_APP_PATH` points at it. It still asks you to quit running Quill processes
+before replacing the daily app, and never modifies configuration or recordings.
+
+Terminal execution uses the selected build’s identity; there is no third CLI
+variant. The login-agent command has been removed. Existing login agents are not
+changed or removed automatically, so this does not disturb an older installation.
+
+Browser-downloaded previews are not yet the frictionless installation intended for
+friends. Persistent distribution signing and the two-version update test are next;
+Developer ID signing/notarization remains an optional paid route.
 
 ## CI behavior
 
@@ -106,8 +159,8 @@ updates are reviewed, not automatically merged.
 
 ## Remaining before public distribution
 
-- A stable production identifier, icon, version policy, model notices, and documented
-  migration from local development installs.
+- App icon, version policy, model notices, and a tested transition from local
+  development use to the distributed app with no data loss.
 - Protected release branches/tags and a restricted signing environment.
 - Developer ID identity, temporary signing Keychain, hardened runtime/entitlements,
   secure timestamps, notarization, stapling, and Gatekeeper verification.

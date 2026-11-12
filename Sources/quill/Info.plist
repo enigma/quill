@@ -3,9 +3,14 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.digimata.quill</string>
+    <string>io.github.enigma.quill</string>
     <key>CFBundleName</key>
-    <string>quill</string>
+    <string>Quill</string>
+    <!-- Local installs override the default app identity without changing existing IDs. -->
+    <key>QuillLocalIdentifier</key>
+    <string>local.quill.app</string>
+    <key>QuillLocalName</key>
+    <string>Quill Local</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>quill records your microphone during meetings so you can transcribe them later. Audio never leaves this Mac.</string>
     <key>NSScreenCaptureUsageDescription</key>
