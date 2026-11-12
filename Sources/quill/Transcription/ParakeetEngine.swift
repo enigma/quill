@@ -2,11 +2,14 @@ import AVFoundation
 import FluidAudio
 import Foundation
 
-/// Parakeet TDT 0.6B v2 (English) via FluidAudio's Core ML port. Models
-/// download once into FluidAudio's managed cache (~600 MB); after that,
-/// transcription runs entirely on-device at roughly 20 seconds per hour of
-/// audio on Apple Silicon.
+/// Parakeet TDT 0.6B v3 via FluidAudio's Core ML port. Automatically recognizes
+/// 25 European languages, including English and Italian. Models download once
+/// into FluidAudio's managed cache; transcription then runs entirely on-device.
 actor ParakeetEngine: TranscriptionEngine {
+    /// Share the selected version with doctor so an old v2 cache is not
+    /// mistaken for a ready-to-use v3 installation.
+    nonisolated static let modelVersion: AsrModelVersion = .v3
+
     enum EngineError: Error, CustomStringConvertible {
         case notPrepared
         case unreadableAudio(URL, Error?)
@@ -22,13 +25,13 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     nonisolated let name = "parakeet"
-    nonisolated let model = "parakeet-tdt-0.6b-v2-coreml"
+    nonisolated let model = "parakeet-tdt-0.6b-v3-coreml"
 
     private var manager: AsrManager?
 
     func prepare() async throws {
         guard manager == nil else { return }
-        let models = try await AsrModels.downloadAndLoad(version: .v2)
+        let models = try await AsrModels.downloadAndLoad(version: Self.modelVersion)
         let manager = AsrManager()
         try await manager.loadModels(models)
         self.manager = manager
@@ -69,7 +72,7 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     /// Group word timings into readable segments: break on sentence-ending
-    /// punctuation (parakeet v2 emits punctuation), a silence gap, or a hard
+    /// punctuation (Parakeet emits punctuation), a silence gap, or a hard
     /// length cap so a run-on speaker still wraps.
     private static func segments(from words: [WordTiming]) -> [TranscriptSegment] {
         var out: [TranscriptSegment] = []

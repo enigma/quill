@@ -133,12 +133,18 @@ written is still readable.
 
 ## Transcription
 
-Built in, on-device, automatic. The default engine is **Parakeet TDT 0.6B v2**
-(English) via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s
-Core ML port — roughly 20 seconds per hour of audio on Apple Silicon. Models
-(~600 MB) download once on first transcription; `quill doctor` tells you
-whether they're already cached so you're never downloading after an important
-meeting.
+Built in, on-device, automatic. The default model is **Parakeet TDT 0.6B v3**
+via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Core ML port.
+It automatically recognizes 25 European languages, including **English and
+Italian**, without a language hint. Transcription speed depends on your Mac
+and the recording.
+
+The v3 models download once on first transcription and run locally afterward.
+An existing v2 model cache does not replace the v3 download. Run `quill doctor`
+to check v3 readiness, and transcribe a short test recording while online before
+an important meeting. The `"engine": "parakeet"` config setting stays the same.
+Existing completed transcripts are preserved; new and pending transcription
+jobs use v3 and record `parakeet-tdt-0.6b-v3-coreml` in their provenance.
 
 Each track is transcribed separately, shifted by its start offset so both
 share one clock, and merged by timestamp. Jobs run in a serial queue — you can
@@ -202,7 +208,8 @@ quill install --uninstall
   per-process picker if it bothers you).
 - If capture fails, check System Settings → Privacy & Security → Screen &
   System Audio Recording, then relaunch quill.
-- Parakeet v2 is English-only. Other languages will come with the Whisper
-  engine.
+- Parakeet v3 supports 25 European languages; see its
+  [supported languages](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3).
+  Recognition can still make mistakes, especially with names and mixed-language speech.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.
