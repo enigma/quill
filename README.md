@@ -1,5 +1,8 @@
 # quill
 
+This is a personal fork of [digimata/quill](https://github.com/digimata/quill),
+maintained in [enigma/quill](https://github.com/enigma/quill).
+
 A minimal, fully local macOS meeting recorder + transcriber. One menu-bar
 click records your mic and all system audio as two separate tracks; when you
 stop, quill transcribes both on-device and writes a speaker-tagged transcript.
@@ -233,3 +236,22 @@ Meters use in-memory audio counters, not repeated reads of the recording files.
 
 Run `make test-capture` to check capture-health transitions. These standalone Swift
 checks need only Command Line Tools and Foundation, not XCTest or model downloads.
+
+### Development downloads
+
+The release-pipeline prototype builds an **ad-hoc signed, unnotarized** Apple Silicon
+preview for macOS 15+. It is not yet a public release. It uses the separate bundle
+identifier `io.github.enigma.quill.preview`; the build does not install or open it.
+
+```sh
+make test-capture test-installer
+make build-app
+python3 scripts/verify-preview.py dist/Quill-macos-arm64-preview.zip
+```
+
+When building inside Safehouse, start it with `--enable=xcode` and use
+`QUILL_DISABLE_SWIFTPM_SANDBOX=1 make build-app` to disable SwiftPM's nested sandbox.
+The outer Safehouse sandbox remains active. Outside Safehouse, use the normal command.
+
+See [the development build and CI guide](docs/development-releases.md) for the
+artifact layout, workflow checks, and remaining production release work.

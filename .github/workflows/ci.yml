@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, release, feat/release-pipeline]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-checks:
+    name: Workflow checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned validation tools
+        run: python3 scripts/ci-tools.py
+      - name: Check workflow syntax and security
+        run: |
+          .build/ci-tools/actionlint
+          .build/ci-tools/zizmor --offline .github/workflows
+      - name: Verify action lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .build/ci-tools/gh-actions-lock --verify
+
+  build:
+    name: macOS preview
+    needs: workflow-checks
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      QUILL_VERSION: 0.1.0
+      QUILL_BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          uname -m
+          sw_vers
+          xcodebuild -version
+          swift --version
+          xcrun --show-sdk-version
+      - name: Tests
+        run: |
+          make test-capture test-installer
+          for script in scripts/*.sh; do bash -n "$script"; done
+      - name: Build preview
+        run: make build-app
+      - name: Verify archived app
+        run: python3 scripts/verify-preview.py dist/Quill-macos-arm64-preview.zip
+      - name: Upload development download
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Quill-preview-arm64-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            dist/Quill-macos-arm64-preview.zip
+            dist/Quill-macos-arm64-preview.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
