@@ -84,9 +84,11 @@ final class AppController {
     private var session: RecordingSession?
     private var ticker: Timer?
     private var isStarting = false
+    private var deadline: Date?
 
     init(root: URL) {
         self.root = root
+        menuBar.onExtend = { [weak self] in self?.extend(by: $0) }
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
@@ -126,6 +128,7 @@ final class AppController {
                 let newSession = try RecordingSession(root: root)
                 try await newSession.start()
                 session = newSession
+                deadline = Date().addingTimeInterval(30 * 60)
                 FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
             } catch {
                 FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
@@ -134,9 +137,14 @@ final class AppController {
             }
 
             menuBar.update(recording: true, elapsed: "0:00")
-            ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tick() }
             }
+            // Keep the cutoff active while a menu or title dialog is open.
+            RunLoop.main.add(timer, forMode: .common)
+            RunLoop.main.add(timer, forMode: .eventTracking)
+            RunLoop.main.add(timer, forMode: .modalPanel)
+            ticker = timer
         }
     }
 
@@ -148,6 +156,7 @@ final class AppController {
             "○ stopped · \(elapsed) · \(session.dir.path)\n".utf8
         ))
         self.session = nil
+        deadline = nil
         ticker?.invalidate()
         ticker = nil
         menuBar.update(recording: false, elapsed: nil)
@@ -170,11 +179,26 @@ final class AppController {
     }
 
     private func tick() {
-        guard let session else { return }
+        guard let session, let deadline else { return }
+        let now = Date()
+        guard now < deadline else {
+            stopSession()
+            notifyUser(title: "quill — recording stopped", body: "The recording time limit was reached.")
+            return
+        }
         menuBar.update(
             recording: true,
-            elapsed: Self.format(Date().timeIntervalSince(session.startedAt))
+            elapsed: Self.format(now.timeIntervalSince(session.startedAt)),
+            remaining: Self.format(ceil(deadline.timeIntervalSince(now)))
         )
+    }
+
+    private func extend(by interval: TimeInterval) {
+        // An overdue recording must stop even if its timer hasn't fired yet.
+        tick()
+        guard let deadline, session != nil else { return }
+        self.deadline = deadline.addingTimeInterval(interval)
+        tick()
     }
 
     private func openFolder() {

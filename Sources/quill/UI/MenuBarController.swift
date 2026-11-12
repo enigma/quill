@@ -9,34 +9,44 @@ final class MenuBarController {
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let toggleItem: NSMenuItem
+    private var extensionItems: [NSMenuItem] = []
 
+    var onExtend: ((TimeInterval) -> Void)?
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        stateLabel = NSMenuItem(title: "idle", action: nil, keyEquivalent: "")
+        transcriptionLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        toggleItem = NSMenuItem(
+            title: "Start recording (30′ adjustable)",
+            action: #selector(toggleClicked),
+            keyEquivalent: "r"
+        )
 
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        stateLabel = NSMenuItem(title: "idle", action: nil, keyEquivalent: "")
         stateLabel.isEnabled = false
         menu.addItem(stateLabel)
 
-        transcriptionLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         transcriptionLabel.isEnabled = false
         transcriptionLabel.isHidden = true
         menu.addItem(transcriptionLabel)
 
         menu.addItem(.separator())
 
-        toggleItem = NSMenuItem(
-            title: "Start recording",
-            action: #selector(toggleClicked),
-            keyEquivalent: "r"
-        )
         menu.addItem(toggleItem)
+
+        for (title, minutes) in [("Extend 10′", 10), ("Extend 30′", 30), ("Extend 1h", 60)] {
+            let item = NSMenuItem(title: title, action: #selector(extendClicked(_:)), keyEquivalent: "")
+            item.tag = minutes
+            item.isHidden = true
+            menu.addItem(item)
+            extensionItems.append(item)
+        }
 
         let openFolder = NSMenuItem(
             title: "Open recordings folder",
@@ -54,7 +64,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, quit] {
+        for item in [toggleItem, openFolder, quit] + extensionItems {
             item.target = self
         }
 
@@ -72,9 +82,10 @@ final class MenuBarController {
     /// menu bar shows only the feather (red while recording); the elapsed
     /// counter lives in the menu's state label. Call once a second while
     /// recording.
-    func update(recording: Bool, elapsed: String?) {
-        stateLabel.title = recording ? "● recording · \(elapsed ?? "0:00")" : "idle"
-        toggleItem.title = recording ? "Stop recording" : "Start recording"
+    func update(recording: Bool, elapsed: String?, remaining: String? = nil) {
+        stateLabel.title = recording ? "● recording · \(elapsed ?? "0:00") · \(remaining ?? "30:00") remaining" : "idle"
+        toggleItem.title = recording ? "Stop recording" : "Start recording (30′ adjustable)"
+        extensionItems.forEach { $0.isHidden = !recording }
         statusItem.button?.contentTintColor = recording ? .systemRed : nil
     }
 
@@ -108,6 +119,7 @@ final class MenuBarController {
         return image
     }
 
+    @objc private func extendClicked(_ sender: NSMenuItem) { onExtend?(TimeInterval(sender.tag * 60)) }
     @objc private func toggleClicked() { onToggle?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }

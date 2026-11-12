@@ -23,12 +23,16 @@ or kernel extension). Apple Silicon recommended for transcription speed.
 ## How to use
 
 1. **Run it** (`quill` in a terminal, or the LaunchAgent).
-2. **Click the feather in the menu bar → Start recording.** First use prompts
+2. **Click the feather in the menu bar → Start recording (30′ adjustable).** First use prompts
    for microphone and Screen Recording permissions. Quill registers only the
    audio output; it doesn't receive or store screen frames. macOS may require
    one relaunch after permission is granted. While recording, the icon turns
    red with a running elapsed counter, and macOS shows the recording indicator.
-3. **Click → Stop recording** when the meeting ends. Transcription starts
+3. Recordings **stop automatically after 30 minutes**. The menu shows elapsed
+   time and time remaining. While recording, choose **Extend 10′**, **Extend 30′**,
+   or **Extend 1h** to add time to the current deadline; extensions can be repeated.
+   Each new recording starts with a fresh 30-minute limit.
+4. **Click → Stop recording** when the meeting ends (or let the timer stop it). Transcription starts
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
 
