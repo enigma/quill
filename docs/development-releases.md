@@ -53,7 +53,7 @@ and command arguments are not dumped on errors. These controls do not make
 malicious code in the approved job safe: anyone approving it must review changes
 to the workflow and scripts it uses.
 
-Download `Quill-signed-preview-arm64-<commit>-<attempt>` from the run. It contains
+Download `Quill-signed-preview-arm64-<commit>-<build>-<attempt>` from the run. It contains
 `Quill-macos-arm64-signed-preview.zip` and its SHA-256 sidecar; the ZIP contains
 `download/Quill.app` and `BUILD.txt`, including the signing certificate fingerprint.
 Only these two output files are uploaded. This is still a preview artifact, not a
@@ -66,6 +66,49 @@ same location. Do not reset permissions between A and B. Confirm both BUILD.txt
 files name the same certificate fingerprint. Record Gatekeeper/Open Anyway prompts
 separately from microphone and screen/system-audio prompts. A persistent self-signed
 identity does not guarantee Gatekeeper acceptance; this experiment measures it.
+
+## Automated friends prereleases
+
+The existing workflow also accepts `release_tag`, for example `v0.1.0-beta.1`.
+This implies signing and accepts only beta versions on a manual run of `release`.
+It reuses the existing `signing` environment restricted to that branch; no new
+secrets or tag permissions are needed. Ordinary pushes only test/build, and the
+retired feature branch no longer triggers CI.
+
+After committing, pushing, and promoting tested `dev` changes to `release`:
+
+```sh
+gh workflow run ci.yml --repo enigma/quill --ref release \
+  -f release_tag=v0.1.0-beta.1
+```
+
+Approve the signing job after reviewing the selected commit. CI builds the numeric
+version `0.1.0` with its unique run number, tests it, signs it, and passes the signed
+ZIP to a separate publication job. Only that job has `contents: write`; it has no
+signing environment or signing secrets. It checks the checksum, version, build,
+commit, clean-tree provenance, app identity, and signing provenance before creating
+a **draft prerelease** targeting the exact workflow commit. It does not rebuild,
+execute, or change the signed app. Versioned release assets retain the signed ZIP's
+bytes and get a checksum sidecar referring to their new filename.
+
+Open the draft at https://github.com/enigma/quill/releases, download and test its
+Quill ZIP, review the generated installation/permission/update notes, then click
+**Publish release**. Drafts are not public download links. After publication, share
+`https://github.com/enigma/quill/releases/tag/v0.1.0-beta.1` with friends. The ZIP is a
+direct asset, without Actions' outer ZIP wrapper, and does not have the 14-day
+Actions artifact expiry. The automatic Source code assets are not the app.
+
+Do not pre-create a version tag. The workflow rejects existing tags and never
+overwrites published assets. It also refuses to overwrite an existing draft. If
+an upload fails, the draft may be incomplete: inspect it before deleting an
+unpublished draft and retrying, or choose a new beta number. Rerun the whole
+workflow to produce matching artifacts for the new attempt. Never move a public
+tag or replace a published version's bytes.
+
+This manual-dispatch draft flow supersedes the earlier tag-trigger proposal for
+the self-signed beta. It preserves the release-only environment rule and leaves
+one deliberate public Publish action after testing. Notarization, DMG packaging,
+Homebrew, and built-in updates remain separate follow-ups.
 
 ## Local build and inspection
 

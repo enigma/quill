@@ -8,8 +8,8 @@ click records your mic and all system audio as two separate tracks; when you
 stop, quill transcribes both on-device and writes a speaker-tagged transcript.
 Nothing ever leaves the machine.
 
-Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot), same skeleton: single
-Swift binary, menu-bar tray, no app bundle.
+Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot): a
+Swift executable with a menu-bar interface, packaged as an app for downloads.
 
 ## Install
 
@@ -236,9 +236,40 @@ checks need only Command Line Tools and Foundation, not XCTest or model download
 
 ### Development downloads
 
-The release-pipeline prototype builds an **ad-hoc signed, unnotarized** Apple Silicon
-preview for macOS 15+. It is not yet a public release. It uses the separate bundle
+Friend-facing beta downloads will appear on the [GitHub Releases page](https://github.com/enigma/quill/releases).
+Choose the versioned **Quill ZIP** under Assets, not the automatic Source code
+downloads. Extract it and move `download/Quill.app` to a permanent location.
+To update, quit Quill and replace the app at that same location; keep your settings
+and recordings. There is no built-in updater yet. Actions artifacts are temporary
+developer downloads and have an extra ZIP wrapper; published release assets do not.
+
+Development downloads are Apple Silicon previews for macOS 15+, not yet a public
+release. Ordinary builds are ad-hoc signed; manually approved CI builds use a
+persistent self-signed certificate. **Neither is notarized by Apple.** They use the separate bundle
 identifier `io.github.enigma.quill`; the build does not install or open it.
+
+#### Opening a downloaded preview
+
+macOS may require several approvals, **including again after an update**:
+
+1. If you see “Quill Not Opened” / “Apple could not verify…”, click **Done**, then
+   go to **System Settings → Privacy & Security → Security → Open Anyway**.
+   Open Anyway is in Settings, not in the warning popup.
+2. Allow microphone and screen/system-audio recording when requested. macOS may
+   separately ask to “bypass the system private window picker and directly access
+   your screen and audio”; click **Allow** to enable Quill's direct capture.
+3. For isolated testing, quit any app relaunched by the approval flow and rerun
+   `scripts/run-isolated.sh`. Confirm the test paths in Quill's menu before recording;
+   the approval relaunch may lose the isolated-path overrides.
+
+In our two-build update test, the same signing certificate and app path did **not**
+prevent another Gatekeeper warning. A direct-capture approval also appeared; after
+allowing it, both microphone and system audio worked. We cannot promise approval-free
+updates. Developer ID signing and notarization are planned to address Gatekeeper;
+capture permissions are a separate macOS requirement. Users do not need to install
+our signing certificate or disable Gatekeeper.
+
+#### Building locally
 
 ```sh
 make test-capture test-separation test-installer

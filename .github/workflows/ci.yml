@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev, release, feat/release-pipeline]
+    branches: [dev, release]
   workflow_dispatch:
     inputs:
       sign_preview:
@@ -10,22 +10,34 @@ on:
         type: boolean
         default: false
 
+      release_tag:
+        description: Optional draft prerelease version, e.g. v0.1.0-beta.1 (release only; implies signing)
+        type: string
+        default: ''
+
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   workflow-checks:
     name: Workflow checks
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Validate release request
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/release.py validate
       - name: Install pinned validation tools
         run: python3 scripts/ci-tools.py
       - name: Check workflow syntax and security
@@ -44,7 +56,7 @@ jobs:
     timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      QUILL_VERSION: 0.1.0
+      QUILL_VERSION: ${{ needs.workflow-checks.outputs.version }}
       QUILL_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -68,7 +80,7 @@ jobs:
       - name: Upload development download
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: Quill-preview-arm64-${{ github.sha }}-${{ github.run_attempt }}
+          name: Quill-preview-arm64-${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             dist/Quill-macos-arm64-preview.zip
             dist/Quill-macos-arm64-preview.zip.sha256
@@ -77,7 +89,7 @@ jobs:
 
   sign:
     name: Sign preview (approval required)
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/release' && inputs.sign_preview
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/release' && (inputs.sign_preview || inputs.release_tag != '')
     needs: build
     runs-on: macos-15
     timeout-minutes: 10
@@ -94,7 +106,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          ARTIFACT_NAME: Quill-preview-arm64-${{ github.sha }}-${{ github.run_attempt }}
+          ARTIFACT_NAME: Quill-preview-arm64-${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
         run: gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --dir unsigned
       - name: Sign with temporary Keychain
         env:
@@ -104,9 +116,40 @@ jobs:
       - name: Upload signed preview
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: Quill-signed-preview-arm64-${{ github.sha }}-${{ github.run_attempt }}
+          name: Quill-signed-preview-arm64-${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             signed/Quill-macos-arm64-signed-preview.zip
             signed/Quill-macos-arm64-signed-preview.zip.sha256
           if-no-files-found: error
           retention-days: 14
+
+  draft-release:
+    name: Prepare draft prerelease
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/release' && inputs.release_tag != ''
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download this run's signed preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          ARTIFACT_NAME: Quill-signed-preview-arm64-${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
+        run: gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --dir signed
+      - name: Prepare versioned assets and installation notes
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/release.py prepare
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/release.py publish
